@@ -15,24 +15,24 @@ public class Astar
     public List<Vector2Int> FindPathToTarget(Vector2Int startPos, Vector2Int endPos, Cell[,] grid)
     {
         var startNode = new Node(startPos, null, 0,  CalculateHScore(startPos, endPos));
-
-        Dictionary<Vector2Int, Node> open = new() { { startNode.position, startNode } };
+        
+        List<Node> open = new() { startNode };
         Dictionary<Vector2Int, Node> closed = new();
         
         while (open.Count > 0)
         {   
-            Node currentNode = GetLowestFScoreNode(open);
+            open.Sort((a, b) => a.FScore.CompareTo(b.FScore));
+            Node currentNode = open[0];
+            open.RemoveAt(0);
+            
             var gridPos = currentNode.position;
+            closed.Add(currentNode.position, currentNode);
             
             if (currentNode.position == endPos)
             {
                 // We have found the path so calculate the complete path and return it
-                Debug.Log("found path");
-                return ReconstructPath(closed, currentNode.position);
+                return ReconstructPath(closed, currentNode);
             }
-
-            open.Remove(currentNode.position);
-            closed.Add(currentNode.position, currentNode);
             
             // Get the neighbours of the current cell and put them into a dictionary (done so i could remove them easily)
             var temp = grid[gridPos.x, gridPos.y].GetNeighbours(grid);
@@ -59,25 +59,22 @@ public class Astar
                     (int)(currentNode.GScore + Vector2Int.Distance(currentNode.position, neighbour.Value.gridPosition));
                 
                 // if the path is better than the previous one add it to the list
-                if (open.TryGetValue(neighbour.Value.gridPosition, out var value))
+                if (open.Any(node => node.position == neighbour.Value.gridPosition))
                 {
-                    Debug.Log("found one in open list");
-                    if (tentativeGScore < value.GScore)
+                    Node existingNode = open.Find(node => node.position == neighbour.Value.gridPosition);
+                    if (tentativeGScore < existingNode.GScore)
                     {
-                        Debug.Log("found a node with better GScore");
-                        // when there is a node with a better score, update that one with the new tentative and parent
-                        value.GScore = tentativeGScore;
-                        value.parent = currentNode;
+                        open.Remove(existingNode);
+                        Node updatedNode = new Node(neighbour.Value.gridPosition, currentNode, tentativeGScore, CalculateHScore(neighbour.Value.gridPosition, endPos));
+                        open.Add(updatedNode);
                     }
                 }
                 else
                 {
-                    Debug.Log("Added neighbour node to open list to check it for new nodes");
-                    // create a new node to add to the open list, this will be evaluated at the next iteration
-                    Node neighbourNode = new Node(neighbour.Value.gridPosition, null,
-                        CalculateGScore(neighbour.Value.gridPosition, startPos), 
+                    Node neighbourNode = new Node(neighbour.Value.gridPosition, currentNode,
+                        CalculateGScore(currentNode, neighbour.Value.gridPosition),
                         CalculateHScore(neighbour.Value.gridPosition, endPos));
-                    open.Add(neighbourNode.position, neighbourNode);
+                    open.Add(neighbourNode);
                 }
             }
         }
@@ -88,34 +85,21 @@ public class Astar
     
     // Helper functions
 
-    private List<Vector2Int> ReconstructPath(Dictionary<Vector2Int, Node> checkedTiles, Vector2Int current)
+    private List<Vector2Int> ReconstructPath(Dictionary<Vector2Int, Node> tilesToCheck, Node goalNode)
     {
-        // TODO: organize path based on parents?? 
-        // create a stack (a list would also be okay but that needs to be reversed before you return it so this is neater)
-        Stack<Vector2Int> finalPath = new();
-        finalPath.Push(current);
-        // keep track of the visited tiles so you dont visit one twice
-        List<Vector2Int> visited = new List<Vector2Int> { current };
-        
-        Debug.Log("path is: " + checkedTiles.Count + " tiles long");
+        List<Vector2Int> totalPath = new List<Vector2Int>();
 
-        foreach (var tile in checkedTiles)
+        while (goalNode != null)
         {
-            Debug.Log(tile.Value.parent);
+            totalPath.Insert(0, goalNode.position);
+
+            if (goalNode.parent != null && tilesToCheck.TryGetValue(goalNode.parent.position, out var parentNode))
+                goalNode = parentNode;
+            else
+                break;
         }
 
-        while (checkedTiles.TryGetValue(current, out Node currentNode) && !visited.Contains(currentNode.position))
-        {
-            // set the current location to the new position from the list and add it to the path && visited
-            if (currentNode.parent != null)
-            {
-                current = currentNode.position;
-                finalPath.Push(current);
-                visited.Add(current);
-            }
-        }
-        
-        return finalPath.ToList();
+        return totalPath;
     }
 
     private int CalculateHScore(Vector2Int gridPosition, Vector2Int endPos)
@@ -123,9 +107,9 @@ public class Astar
         return (int)Vector2Int.Distance(gridPosition, endPos);
     }
 
-    private int CalculateGScore(Vector2Int gridPosition, Vector2Int startpos)
+    private int CalculateGScore(Node current, Vector2Int neighborPosition)
     {
-        return (int)Vector2Int.Distance(gridPosition, startpos);
+        return (int)(current.GScore + Vector2Int.Distance(current.position, neighborPosition));
     }
 
     private Node GetLowestFScoreNode(Dictionary<Vector2Int, Node> nodes)
